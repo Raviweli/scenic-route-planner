@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+requests>=2.31
+Pillow>=10.0
+numpy>=1.26
+networkx>=3.2

@@ -1,0 +1,31 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# --- Generated data & caches (rebuilt at runtime; never commit) ---
+# Satellite tiles, land-cover tiles, the SQLite store and any scored grids all
+# live under data/ and can be regenerated, so they stay out of version control.
+data/
+!data/.gitkeep
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Local backups / scratch ---
+*.v2bak
+*.bak
+*.tmp
+scripts/_*.py

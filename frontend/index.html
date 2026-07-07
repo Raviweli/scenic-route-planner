@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scenic Route Planner</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root { --panel:#1e2530; --panel2:#28313d; --accent:#4caf50; --ink:#eaeef3; --dim:#9fb0c3; }
+    * { box-sizing:border-box; }
+    html,body { margin:0; height:100%; font-family:system-ui,sans-serif; }
+    #map { position:absolute; inset:0; }
+    #panel { position:absolute; top:12px; left:12px; z-index:1000; width:340px; max-height:calc(100vh - 24px);
+      overflow:auto; background:var(--panel); color:var(--ink); border-radius:10px; padding:14px;
+      box-shadow:0 6px 24px rgba(0,0,0,.4); }
+    h1 { font-size:16px; margin:0 0 2px; } .sub { margin:0 0 10px; font-size:12px; color:var(--dim); }
+    .tabs { display:flex; gap:4px; margin-bottom:10px; }
+    .tab { flex:1; text-align:center; padding:7px 4px; font-size:13px; border-radius:6px; cursor:pointer;
+      background:var(--panel2); color:var(--dim); }
+    .tab.active { background:var(--accent); color:#06210a; font-weight:700; }
+    .view { display:none; } .view.active { display:block; }
+    .row { display:flex; gap:8px; margin-bottom:8px; }
+    .pt { flex:1; font-size:12px; background:var(--panel2); border-radius:6px; padding:6px 8px; }
+    .pt b { color:var(--accent); }
+    label { font-size:12px; display:block; margin:10px 0 4px; color:var(--dim); }
+    input,select,textarea { width:100%; padding:8px; border-radius:6px; border:1px solid #3a4656;
+      background:#151b24; color:var(--ink); font-size:13px; }
+    textarea { resize:vertical; min-height:44px; }
+    button { width:100%; padding:10px; margin-top:8px; border:0; border-radius:6px; background:var(--accent);
+      color:#06210a; font-weight:600; cursor:pointer; font-size:13px; }
+    button.secondary { background:#37465a; color:var(--ink); }
+    button.mini { width:auto; padding:5px 9px; margin:0; font-size:11px; }
+    button:disabled { opacity:.5; cursor:default; }
+    button.active { background:var(--accent); color:#06210a; box-shadow:0 0 0 2px #4caf50 inset; }
+    .hint { font-size:11px; color:var(--dim); margin-top:4px; line-height:1.5; }
+    .err { color:#ff9a9a; } .spin { color:#ffd166; display:inline-block; animation:pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+    /* Live search progress panel */
+    #searchProgress { margin-top:10px; padding:10px; border:1px solid #2f3b4a; border-radius:8px;
+      background:linear-gradient(180deg,#161d27,#131922); }
+    #searchProgress .sp-head { font-size:12px; font-weight:600; color:var(--accent); margin-bottom:6px;
+      display:flex; align-items:center; gap:6px; }
+    #searchLog .sl-phase { font-size:12px; color:var(--ink); }
+    #searchLog .sl-stat { font-size:11px; color:var(--dim); margin-top:3px; }
+    .search { display:flex; gap:6px; }
+    .search button { width:auto; margin:0; }
+
+    /* Route option cards (Google-Maps style switcher) */
+    #routeList { margin-top:12px; }
+    .ropt { display:flex; align-items:center; gap:10px; background:var(--panel2); border:2px solid transparent;
+      border-radius:8px; padding:9px 10px; margin-bottom:7px; cursor:pointer; }
+    .ropt:hover { border-color:#3a4656; }
+    .ropt.sel { border-color:var(--accent); background:#22303a; }
+    .ropt .swatch { width:10px; align-self:stretch; border-radius:4px; }
+    .ropt .body { flex:1; }
+    .ropt .title { font-size:13px; font-weight:600; }
+    .ropt .meta { font-size:11px; color:var(--dim); margin-top:2px; }
+    .ropt .badge { font-size:11px; font-weight:700; color:#06210a; background:var(--accent);
+      border-radius:10px; padding:2px 8px; }
+
+    /* Directions */
+    #directions { margin-top:12px; }
+    .dirhead { font-size:13px; font-weight:700; margin-bottom:6px; display:flex; justify-content:space-between; }
+    .dstep { display:flex; gap:9px; padding:7px 4px; border-bottom:1px solid #2b3543; cursor:pointer; }
+    .dstep:hover { background:#22303a; }
+    .dstep .n { color:var(--accent); font-weight:700; min-width:18px; }
+    .dstep .t { flex:1; font-size:12px; line-height:1.4; }
+    .dstep .d { font-size:11px; color:var(--dim); white-space:nowrap; }
+
+    .legend { margin-top:10px; font-size:11px; }
+    .legend .bar { height:10px; border-radius:5px; background:linear-gradient(90deg,#c0503c,#c9a227,#4caf50); }
+    .card { background:var(--panel2); border-radius:7px; padding:8px 10px; margin-bottom:7px; font-size:12px; }
+    .card h4 { margin:0 0 3px; font-size:13px; } .card .meta { color:var(--dim); font-size:11px; }
+    .cardrow { display:flex; gap:6px; margin-top:6px; }
+    .chip { display:inline-block; background:#33414f; border-radius:10px; padding:2px 8px; font-size:10px; margin:2px 3px 0 0; }
+    .starrow span { cursor:pointer; font-size:16px; color:#5a6675; } .starrow span.on { color:#ffd166; }
+    .modal { position:absolute; inset:0; z-index:2000; background:rgba(0,0,0,.5); display:none;
+      align-items:center; justify-content:center; }
+    .modal.open { display:flex; }
+    .modal .box { background:var(--panel); border-radius:10px; padding:16px; width:320px; }
+    /* Hover explainability tooltip */
+    .leaflet-tooltip.why-tip { background:#1e2530; color:var(--ink); border:1px solid #3a4656;
+      box-shadow:0 4px 16px rgba(0,0,0,.5); border-radius:8px; padding:8px 10px; }
+    .leaflet-tooltip.why-tip:before { border-top-color:#3a4656; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel">
+    <h1>🗺️ Scenic Route Planner</h1>
+    <p class="sub">Pick a start and end — compare scenic routes on real roads.</p>
+
+    <div class="tabs">
+      <div class="tab active" data-view="plan">Plan a route</div>
+      <div class="tab" data-view="saved">My routes</div>
+    </div>
+
+    <!-- PLAN -->
+    <div class="view active" id="view-plan">
+      <div class="search">
+        <input id="q" placeholder="Search a place (e.g. Keswick)" />
+        <button id="searchBtn" class="secondary mini">Go</button>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div class="pt">A: <b id="ptA">—</b></div>
+        <div class="pt">B: <b id="ptB">—</b></div>
+      </div>
+      <div class="row">
+        <button id="setA" class="secondary">📍 Set start</button>
+        <button id="setB" class="secondary">🏁 Set end</button>
+      </div>
+      <div class="hint">Tap <b>Set start</b>, then click the map — it auto-advances to the end. Pan &amp; zoom freely otherwise; drag the A/B pins to fine-tune.</div>
+
+      <label>Scenery to favour</label>
+      <select id="profile"></select>
+
+      <label>How scenic vs. how direct? <span id="prefVal" style="color:var(--accent)">Balanced</span></label>
+      <input type="range" id="pref" min="0" max="1" step="0.05" value="0.6" />
+      <div class="hint" style="display:flex;justify-content:space-between;"><span>Quickest</span><span>Most scenic</span></div>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;">
+        <input type="checkbox" id="avoidMw" style="width:auto;" checked />
+        🛣️ Avoid motorways (harsh)
+      </label>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
+        <input type="checkbox" id="exploreAll" style="width:auto;" checked />
+        🏞️ Explore everything (ignore travel time, divert via national parks)
+      </label>
+
+      <label style="margin-top:12px;">Minimum scenic score <span id="minScenicVal" style="color:var(--accent)">Off</span></label>
+      <input type="range" id="minScenic" min="0" max="90" step="5" value="0" />
+      <div class="hint">Hard floor — the route will detour and lengthen as needed to hit this. Higher targets take longer to compute. 0 = off.</div>
+
+      <button id="routeBtn">Find routes</button>
+      <button id="resetBtn" class="secondary">Reset</button>
+
+      <div id="stats"></div>
+
+      <!-- live search progress -->
+      <div id="searchProgress" style="display:none;">
+        <div class="sp-head"><span class="spin">🛰️</span> Live route search</div>
+        <div id="searchLog"></div>
+      </div>
+
+      <!-- route option switcher -->
+      <div id="routeList"></div>
+
+      <!-- action row (appears once a route is selected) -->
+      <div class="row" id="actionRow" style="display:none;">
+        <button id="saveBtn" class="secondary">💾 Save</button>
+        <select id="exportFmt" class="secondary" style="max-width:120px;"><option value="">Export…</option></select>
+      </div>
+
+      <!-- turn-by-turn directions -->
+      <div id="directions"></div>
+
+      <div class="legend" id="legend" style="display:none;">Scenic score along the selected route<div class="bar"></div>
+        <div style="display:flex;justify-content:space-between;"><span>built-up</span><span>scenic</span></div>
+        <div class="hint">💡 Hover the coloured route to see <b>why</b> each stretch scores as it does.</div>
+      </div>
+    </div>
+
+    <!-- SAVED -->
+    <div class="view" id="view-saved">
+      <div class="row">
+        <button id="reloadSaved" class="secondary mini">↻ Reload</button>
+        <button id="favOnly" class="secondary mini">★ Favourites</button>
+      </div>
+      <input id="savedSearch" placeholder="Search my routes…" style="margin-top:6px;" />
+      <div id="savedList" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- SAVE MODAL -->
+  <div class="modal" id="saveModal">
+    <div class="box">
+      <h1>Save route</h1>
+      <label>Name</label><input id="svName" placeholder="e.g. Keswick coast loop" />
+      <label>Tags (comma separated)</label><input id="svTags" placeholder="lakes, coastal" />
+      <label>Notes</label><textarea id="svNotes"></textarea>
+      <label>Rating</label>
+      <div class="starrow" id="svStars"><span data-v="1">★</span><span data-v="2">★</span><span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span></div>
+      <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="svFav" style="width:auto;"/> Favourite</label>
+      <div class="row" style="margin-top:10px;">
+        <button id="svConfirm">Save</button>
+        <button id="svCancel" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
