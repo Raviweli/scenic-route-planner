@@ -1,0 +1,15 @@
+# Extra A→B corridors for friends-demo prewarm / elev preseed (host-chosen dogfood).
+# Format: from_lat,from_lng,to_lat,to_lng[,label]
+# Lines starting with # are ignored.
+#
+# Featured presets are always included by prewarm_landcover.py; these are extras
+# so non-featured dogfood routes stay warm too.
+#
+# QA: python scripts/demo_corridor_qa.py (featured + this file, live SSE).
+# Expect field-mode proxy-only heatmaps on cold corridors until prewarm + repeat plans.
+
+54.6009,-3.1371,54.4287,-2.9613,Keswick-Ambleside
+51.5074,-0.1278,51.3813,-2.3590,London-Bath
+40.0150,-105.2705,39.1911,-106.8175,Boulder-Aspen
+46.6863,7.8632,46.0207,7.7491,Interlaken-Zermatt
+-45.0312,168.6626,-44.6710,167.9250,Queenstown-Milford

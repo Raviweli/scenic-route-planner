@@ -27,6 +27,7 @@ import requests
 from PIL import Image
 
 from . import config
+from .climates import ColourClimate, TEMPERATE_OCEANIC, get_climate
 
 
 # ---------------------------------------------------------------------------
@@ -154,52 +155,65 @@ class ScenicScore:
                 for k, v in asdict(self).items()}
 
 
-def analyse_image(img: Image.Image, source: str = "") -> ScenicScore:
+def analyse_image(img: Image.Image, source: str = "",
+                  climate: ColourClimate | None = None) -> ScenicScore:
     """Downscale, classify each pixel by colour, and average a scenic value.
 
-    Instead of a single green-vs-grey ratio (which saturated to 100 for any
-    green-ish tile), every pixel is assigned a scenic *value* in [0,1] by land
-    type, then averaged. This gives a genuine 0-100 spread and distinguishes
-    rich woodland/water from plain farmland from built-up areas.
+    Classification uses a regional ``ColourClimate`` (default: temperate
+    oceanic). All HSV band edges come from the climate — no global constants.
     """
+    climate = climate or TEMPERATE_OCEANIC
     small = img.resize((config.DOWNSCALE, config.DOWNSCALE), Image.BILINEAR)
     hsv = np.asarray(small.convert("HSV"), dtype=np.float32)
     h = hsv[..., 0] / 255.0 * 360.0   # hue in degrees (0=red, 120=green, 240=blue)
     s = hsv[..., 1] / 255.0           # saturation 0-1
     v = hsv[..., 2] / 255.0           # value 0-1
     total = h.size
+    c = climate
 
-    # --- classify pixels -----------------------------------------------------
-    # Water incl. dark, low-saturation lakes (broad blue hue, allow low V).
-    water  = (h >= 172) & (h <= 285) & (s >= 0.08) & (v >= 0.06)
-    green  = (h >= 60) & (h < 172) & (s >= 0.10) & (v >= 0.10)
-    moor   = (h >= 20) & (h < 60) & (s >= 0.15) & (v >= 0.18) & (v <= 0.80)  # heath/bracken/soil
-    bright_urban = (s < 0.10) & (v > 0.60)             # concrete / bright roofs
-    grey   = (s < 0.10) & (v >= 0.18) & (v <= 0.60)    # roads / buildings / grey
-    dark   = (v < 0.18)                                # deep shadow (ambiguous)
+    # --- classify pixels from climate HSV bands ------------------------------
+    water = (
+        (h >= c.h_water_min) & (h <= c.h_water_max)
+        & (s >= c.s_water_min) & (v >= c.v_water_min)
+    )
+    green = (
+        (h >= c.h_green_min) & (h < c.h_green_max)
+        & (s >= c.s_green_min) & (v >= c.v_green_min)
+    )
+    moor = (
+        (h >= c.h_moor_min) & (h < c.h_moor_max)
+        & (s >= c.s_moor_min) & (v >= c.v_moor_min) & (v <= c.v_moor_max)
+    )
+    bright_urban = (s < c.s_grey_max) & (v > c.v_urban_min)
+    grey = (s < c.s_grey_max) & (v >= c.v_grey_min) & (v <= c.v_grey_max)
+    dark = (v < c.v_dark_max)
 
     # --- assign a scenic value to every pixel (higher priority assigned last) -
-    value = np.full(h.shape, config.VAL_DEFAULT, dtype=np.float32)
-    value[dark]         = config.VAL_DARK
-    value[grey]         = config.VAL_GREY
-    value[bright_urban] = config.VAL_URBAN
-    value[moor]         = config.VAL_MOOR
+    value = np.full(h.shape, c.val_default, dtype=np.float32)
+    value[dark] = c.val_dark
+    value[grey] = c.val_grey
+    value[bright_urban] = c.val_urban
+    if c.protect_bright_natural:
+        # Sand/snow share bright low-sat appearance with concrete; protect them.
+        value[bright_urban] = c.val_bright_natural
+    value[moor] = c.val_moor
 
     # Green quality is graded continuously: dark, saturated green = woodland
-    # (high value); bright, pale green = farmland/pasture (mid value). This is
-    # what separates a forest drive from a field, which a hard split could not.
-    gf = (np.clip((s - 0.10) / 0.35, 0.0, 1.0) * 0.5
-          + np.clip((0.62 - v) / 0.45, 0.0, 1.0) * 0.5)
-    green_val = config.VAL_GRASS + (config.VAL_FOREST - config.VAL_GRASS) * gf
+    # (high value); bright, pale green = farmland/pasture (mid value).
+    gf = (
+        np.clip((s - c.gf_s_floor) / c.gf_s_span, 0.0, 1.0) * 0.5
+        + np.clip((c.gf_v_peak - v) / c.gf_v_span, 0.0, 1.0) * 0.5
+    )
+    green_val = c.val_grass + (c.val_forest - c.val_grass) * gf
     value[green] = green_val[green]
-    value[water] = config.VAL_WATER
+    value[water] = c.val_water
 
     base = float(value.mean()) * 100.0
 
     # --- landscape variety bonus --------------------------------------------
-    # A mix of natural colours (green + water + moor) is more interesting than a
-    # uniform field. Circular spread of hue over natural pixels -> up to +8.
     natural = water | green | moor
+    if c.protect_bright_natural:
+        natural = natural | bright_urban
     if int(natural.sum()) >= 4:
         ang = np.radians(h[natural])
         r = math.hypot(float(np.cos(ang).mean()), float(np.sin(ang).mean()))
@@ -210,7 +224,11 @@ def analyse_image(img: Image.Image, source: str = "") -> ScenicScore:
 
     green_frac = float(green.sum()) / total
     blue_frac = float(water.sum()) / total
-    grey_frac = float((grey | bright_urban).sum()) / total
+    # When bright low-sat is protected (sand/snow/rock), do not report it as grey.
+    if c.protect_bright_natural:
+        grey_frac = float(grey.sum()) / total
+    else:
+        grey_frac = float((grey | bright_urban).sum()) / total
     brightness = float(v.mean())
 
     return ScenicScore(
@@ -224,8 +242,12 @@ def analyse_image(img: Image.Image, source: str = "") -> ScenicScore:
 
 
 def score_location(lat: float, lng: float, zoom: Optional[int] = None,
-                   source: str = "esri") -> ScenicScore:
+                   source: str = "esri",
+                   climate: ColourClimate | str | None = None) -> ScenicScore:
     """Full pipeline for a single coordinate."""
+    if isinstance(climate, str):
+        climate = get_climate(climate)
+    climate = climate or TEMPERATE_OCEANIC
     zoom = zoom if zoom is not None else config.TILE_ZOOM
     img, used = fetch_tile(lat, lng, zoom, source=source)
-    return analyse_image(img, source=used)
+    return analyse_image(img, source=used, climate=climate)

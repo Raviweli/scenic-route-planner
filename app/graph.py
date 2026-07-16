@@ -1,18 +1,13 @@
-"""Routing graph and scenic A->B routing.
+"""Optional cell-lattice routing for precomputed heatmap grids.
 
-The demo builds a routable lattice directly from the scored grid: every cell is
-a node connected to its 8 neighbours. Each edge carries a real-world distance
-(haversine between cell centres) and a scenic value (mean of the two cells).
+Not used by live FastAPI route endpoints — those call OSRM via `app/roads.py`.
+Kept for `scripts/build_grid.py` / `GET /api/cells` tooling only
+(see docs/API_SURFACE.md).
 
-The travel cost of an edge blends distance with scenic quality:
+Builds an 8-connected lattice over scored cells. Edge cost blends distance
+with scenic quality:
 
     cost = distance_km * (1 + preference * DETOUR_FACTOR * (1 - scenic/100))
-
-preference = 0  -> shortest path (distance only)
-preference = 1  -> strongly favours high-scenic edges, tolerating detours
-
-Production would swap this lattice for a real OSM road graph (OSRM/Valhalla)
-with the same scenic cost overlay; the routing logic is unchanged.
 """
 from __future__ import annotations
 

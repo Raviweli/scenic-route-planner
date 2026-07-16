@@ -40,6 +40,8 @@ def build_profiles() -> list[dict[str, Any]]:
         ("All-rounder", "Balanced Explorer", "Balanced views without a strong bias.", {"colour": 0.34, "terrain": 0.33, "landcover": 0.33}, 1.00),
         ("Coastal", "Coastal", "Sea cliffs, beaches, estuaries and bright open colour.", {"colour": 0.38, "terrain": 0.17, "landcover": 0.45}, 1.05),
         ("Mountain", "Mountain", "High passes, steep relief and dramatic ridge scenery.", {"colour": 0.18, "terrain": 0.62, "landcover": 0.20}, 1.10),
+        ("Desert & Canyon", "Desert & Canyon", "Sandstone cliffs, dunes, scrub and arid rock — not lush green.", {"colour": 0.20, "terrain": 0.42, "landcover": 0.38}, 1.15),
+        ("Alpine Rock", "Alpine Rock", "Snow, scree, glaciers and high rocky relief over valley green.", {"colour": 0.22, "terrain": 0.48, "landcover": 0.30}, 1.15),
         ("Woodland", "Woodland", "Tree cover, forest roads and enclosed green corridors.", {"colour": 0.25, "terrain": 0.16, "landcover": 0.59}, 1.00),
         ("Waterside", "Waterside", "Lakes, rivers, reservoirs and reflective valley roads.", {"colour": 0.42, "terrain": 0.20, "landcover": 0.38}, 1.05),
         ("Pastoral", "Pastoral", "Rolling farmland, villages, hedgerows and gentle lanes.", {"colour": 0.32, "terrain": 0.18, "landcover": 0.50}, 0.95),
@@ -73,7 +75,7 @@ def build_profiles() -> list[dict[str, Any]]:
                 profiles.append(
                     {
                         "id": f"{_slug(label)}-{detour_key}-{variant_key}",
-                        "name": f"{label} ? {detour_label} ? {variant_label}",
+                        "name": f"{label} · {detour_label} · {variant_label}",
                         "description": f"{summary} Uses a {detour_label.lower()} detour appetite with extra emphasis on {variant_key}.",
                         "category": category,
                         "weights": weights,
@@ -369,18 +371,273 @@ REGION_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
-def build_regions() -> list[dict[str, Any]]:
-    """Build map quick-jump regions for the UK scenic catalogue."""
-    return [
-        {
-            "id": region["id"],
-            "name": region["name"],
-            "center": dict(region["center"]),
-            "zoom": int(region["zoom"]),
-            "bbox": list(region["bbox"]),
-        }
-        for region in REGION_DEFINITIONS
-    ]
+WORLD_REGION_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "id": "colorado-rockies",
+        "name": "Colorado Rockies",
+        "scope": "world",
+        "center": {"lat": 39.60, "lng": -106.00},
+        "zoom": 8,
+        "bbox": [38.80, -107.20, 40.40, -104.80],
+        "profile": "mountain-moderate-terrain",
+        "tags": ["mountains", "usa", "rockies"],
+        "anchors": [
+            ("Denver", 39.739, -104.990, ["gateway", "city"]),
+            ("Boulder", 40.015, -105.271, ["foothills", "town"]),
+            ("Estes Park", 40.377, -105.521, ["national-park", "mountain"]),
+            ("Vail", 39.640, -106.374, ["ski", "valley"]),
+            ("Aspen", 39.191, -106.818, ["mountain", "town"]),
+            ("Independence Pass", 39.108, -106.564, ["pass", "alpine"]),
+            ("Colorado Springs", 38.834, -104.821, ["gateway", "city"]),
+        ],
+    },
+    {
+        "id": "swiss-alps",
+        "name": "Swiss Alps",
+        "scope": "world",
+        "center": {"lat": 46.60, "lng": 8.00},
+        "zoom": 8,
+        "bbox": [46.00, 6.80, 47.10, 9.20],
+        "profile": "mountain-adventurous-terrain",
+        "tags": ["alps", "mountains", "switzerland"],
+        "anchors": [
+            ("Interlaken", 46.686, 7.863, ["lake", "gateway"]),
+            ("Grindelwald", 46.624, 8.041, ["glacier", "village"]),
+            ("Lauterbrunnen", 46.593, 7.908, ["valley", "waterfall"]),
+            ("Zermatt", 46.020, 7.749, ["matterhorn", "village"]),
+            ("Chamonix", 45.923, 6.869, ["mont-blanc", "town"]),
+            ("Lucerne", 47.050, 8.309, ["lake", "city"]),
+        ],
+    },
+    {
+        "id": "dolomites",
+        "name": "Dolomites",
+        "scope": "world",
+        "center": {"lat": 46.45, "lng": 11.85},
+        "zoom": 9,
+        "bbox": [46.10, 11.20, 46.75, 12.50],
+        "profile": "photographer-adventurous-colour",
+        "tags": ["dolomites", "italy", "mountains"],
+        "anchors": [
+            ("Cortina d'Ampezzo", 46.540, 12.135, ["mountain", "town"]),
+            ("Ortisei", 46.576, 11.672, ["valley", "village"]),
+            ("Canazei", 46.477, 11.770, ["pass", "village"]),
+            ("Bolzano", 46.498, 11.354, ["gateway", "city"]),
+            ("Brunico", 46.796, 11.938, ["valley", "town"]),
+        ],
+    },
+    {
+        "id": "tuscany",
+        "name": "Tuscany",
+        "scope": "world",
+        "center": {"lat": 43.40, "lng": 11.20},
+        "zoom": 8,
+        "bbox": [42.80, 10.40, 44.00, 12.00],
+        "profile": "heritage-moderate-colour",
+        "tags": ["italy", "hills", "heritage"],
+        "anchors": [
+            ("Florence", 43.769, 11.256, ["city", "heritage"]),
+            ("Siena", 43.319, 11.331, ["hilltown", "heritage"]),
+            ("San Gimignano", 43.468, 11.043, ["towers", "village"]),
+            ("Montalcino", 43.053, 11.489, ["wine", "hilltown"]),
+            ("Arezzo", 43.463, 11.879, ["market-town", "heritage"]),
+        ],
+    },
+    {
+        "id": "banff-jasper",
+        "name": "Banff & Jasper",
+        "scope": "world",
+        "center": {"lat": 52.00, "lng": -116.50},
+        "zoom": 7,
+        "bbox": [50.80, -118.50, 53.20, -114.50],
+        "profile": "mountain-adventurous-terrain",
+        "tags": ["canada", "rockies", "national-park"],
+        "anchors": [
+            ("Banff", 51.178, -115.571, ["town", "national-park"]),
+            ("Lake Louise", 51.425, -116.177, ["lake", "mountain"]),
+            ("Jasper", 52.874, -118.081, ["town", "national-park"]),
+            ("Icefields Parkway mid", 52.200, -117.200, ["glacier", "parkway"]),
+            ("Canmore", 51.089, -115.359, ["gateway", "mountain"]),
+        ],
+    },
+    {
+        "id": "fiordland",
+        "name": "Fiordland / Queenstown",
+        "scope": "world",
+        "center": {"lat": -45.00, "lng": 168.50},
+        "zoom": 8,
+        "bbox": [-45.60, 167.50, -44.40, 169.50],
+        "profile": "mountain-adventurous-landcover",
+        "tags": ["new-zealand", "fjords", "mountains"],
+        "anchors": [
+            ("Queenstown", -45.031, 168.663, ["lake", "town"]),
+            ("Wanaka", -44.694, 169.132, ["lake", "town"]),
+            ("Te Anau", -45.414, 167.718, ["fjord", "gateway"]),
+            ("Milford Sound", -44.672, 167.926, ["fjord", "icon"]),
+            ("Glenorchy", -44.850, 168.385, ["lake", "village"]),
+        ],
+    },
+    {
+        "id": "cape-town",
+        "name": "Cape Town & Garden Route",
+        "scope": "world",
+        "center": {"lat": -33.90, "lng": 19.50},
+        "zoom": 7,
+        "bbox": [-34.50, 18.20, -33.40, 23.00],
+        "profile": "coastal-moderate-colour",
+        "tags": ["south-africa", "coast", "mountains"],
+        "anchors": [
+            ("Cape Town", -33.925, 18.424, ["city", "coast"]),
+            ("Stellenbosch", -33.932, 18.860, ["wine", "hills"]),
+            ("Hermanus", -34.419, 19.235, ["coast", "whales"]),
+            ("Knysna", -34.036, 23.049, ["lagoon", "forest"]),
+            ("Plettenberg Bay", -34.053, 23.372, ["beach", "coast"]),
+        ],
+    },
+    {
+        "id": "kyoto-fuji",
+        "name": "Kyoto & Fuji area",
+        "scope": "world",
+        "center": {"lat": 35.40, "lng": 137.50},
+        "zoom": 7,
+        "bbox": [34.80, 135.50, 36.20, 139.20],
+        "profile": "photographer-moderate-colour",
+        "tags": ["japan", "mountains", "heritage"],
+        "anchors": [
+            ("Kyoto", 35.012, 135.768, ["city", "heritage"]),
+            ("Nara", 34.685, 135.805, ["park", "heritage"]),
+            ("Hakone", 35.232, 139.107, ["lake", "volcano"]),
+            ("Kawaguchiko", 35.517, 138.752, ["fuji", "lake"]),
+            ("Kamikochi", 36.253, 137.637, ["alps", "valley"]),
+        ],
+    },
+    {
+        "id": "patagonia-chile",
+        "name": "Patagonia",
+        "scope": "world",
+        "center": {"lat": -50.50, "lng": -73.00},
+        "zoom": 6,
+        "bbox": [-52.00, -74.50, -48.50, -71.00],
+        "profile": "remote-adventurous-terrain",
+        "tags": ["patagonia", "chile", "argentina", "mountains"],
+        "anchors": [
+            ("Puerto Natales", -51.723, -72.487, ["gateway", "fjord"]),
+            ("Torres del Paine", -51.000, -73.000, ["national-park", "peaks"]),
+            ("El Calafate", -50.338, -72.264, ["glacier", "town"]),
+            ("El Chaltén", -49.331, -72.886, ["fitz-roy", "village"]),
+        ],
+    },
+    {
+        "id": "norwegian-fjords",
+        "name": "Norwegian Fjords",
+        "scope": "world",
+        "center": {"lat": 61.50, "lng": 7.00},
+        "zoom": 7,
+        "bbox": [60.50, 5.50, 62.50, 8.50],
+        "profile": "waterside-adventurous-terrain",
+        "tags": ["norway", "fjords", "mountains"],
+        "anchors": [
+            ("Bergen", 60.391, 5.322, ["gateway", "coast"]),
+            ("Flåm", 60.863, 7.114, ["fjord", "village"]),
+            ("Geiranger", 62.101, 7.207, ["fjord", "icon"]),
+            ("Åndalsnes", 62.567, 7.687, ["fjord", "mountain"]),
+            ("Ålesund", 62.472, 6.155, ["coast", "town"]),
+        ],
+    },
+    {
+        "id": "california-sierra",
+        "name": "California Sierra",
+        "scope": "world",
+        "center": {"lat": 37.50, "lng": -119.50},
+        "zoom": 7,
+        "bbox": [36.20, -121.50, 38.50, -117.50],
+        "profile": "mountain-moderate-colour",
+        "tags": ["usa", "california", "national-park"],
+        "anchors": [
+            ("Yosemite Valley", 37.745, -119.594, ["national-park", "valley"]),
+            ("Mammoth Lakes", 37.648, -118.972, ["mountain", "lake"]),
+            ("Lone Pine", 36.606, -118.063, ["desert", "sierra"]),
+            ("Big Sur", 36.270, -121.807, ["coast", "cliffs"]),
+            ("Sequoia NP", 36.486, -118.566, ["forest", "national-park"]),
+        ],
+    },
+    {
+        "id": "amalfi-coast",
+        "name": "Amalfi Coast",
+        "scope": "world",
+        "center": {"lat": 40.65, "lng": 14.55},
+        "zoom": 10,
+        "bbox": [40.50, 14.30, 40.80, 14.80],
+        "profile": "coastal-moderate-colour",
+        "tags": ["italy", "coast", "cliffs"],
+        "anchors": [
+            ("Sorrento", 40.626, 14.376, ["coast", "town"]),
+            ("Positano", 40.628, 14.485, ["cliffs", "village"]),
+            ("Amalfi", 40.634, 14.603, ["coast", "town"]),
+            ("Ravello", 40.649, 14.612, ["hilltown", "views"]),
+            ("Salerno", 40.682, 14.768, ["gateway", "coast"]),
+        ],
+    },
+    {
+        "id": "iceland-south",
+        "name": "South Iceland",
+        "scope": "world",
+        "center": {"lat": 63.90, "lng": -19.50},
+        "zoom": 7,
+        "bbox": [63.40, -22.00, 64.40, -16.50],
+        "profile": "big-sky-adventurous-terrain",
+        "tags": ["iceland", "volcano", "coast"],
+        "anchors": [
+            ("Reykjavík", 64.147, -21.943, ["gateway", "city"]),
+            ("Vík", 63.418, -19.006, ["coast", "black-sand"]),
+            ("Skógafoss", 63.532, -19.511, ["waterfall", "coast"]),
+            ("Jökulsárlón", 64.048, -16.180, ["glacier", "lagoon"]),
+            ("Selfoss", 63.933, -20.997, ["gateway", "river"]),
+        ],
+    },
+    {
+        "id": "utah-canyon",
+        "name": "Utah Canyon Country",
+        "scope": "world",
+        "center": {"lat": 37.80, "lng": -111.50},
+        "zoom": 7,
+        "bbox": [37.00, -113.50, 38.80, -109.50],
+        "profile": "photographer-adventurous-colour",
+        "tags": ["usa", "utah", "canyon"],
+        "anchors": [
+            ("Zion Canyon", 37.298, -113.026, ["national-park", "canyon"]),
+            ("Bryce Canyon", 37.593, -112.187, ["national-park", "hoodoos"]),
+            ("Moab", 38.573, -109.549, ["arches", "town"]),
+            ("Capitol Reef", 38.367, -111.262, ["national-park", "reef"]),
+            ("Page", 36.915, -111.456, ["lake", "canyon"]),
+        ],
+    },
+]
+
+
+def _region_payload(region: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": region["id"],
+        "name": region["name"],
+        "center": dict(region["center"]),
+        "zoom": int(region["zoom"]),
+        "bbox": list(region["bbox"]),
+        "scope": region.get("scope", "uk"),
+    }
+
+
+def build_regions(scope: str = "all") -> list[dict[str, Any]]:
+    """Build map quick-jump regions. scope: uk | world | all (default all)."""
+    scope = (scope or "all").lower()
+    out: list[dict[str, Any]] = []
+    if scope in ("uk", "all"):
+        out.extend(
+            _region_payload({**region, "scope": "uk"})
+            for region in REGION_DEFINITIONS
+        )
+    if scope in ("world", "all"):
+        out.extend(_region_payload(region) for region in WORLD_REGION_DEFINITIONS)
+    return out
 
 
 def _anchor(region_id: str, name: str, lat: float, lng: float, tags: list[str]) -> dict[str, Any]:
@@ -404,24 +661,33 @@ def _route_record(
     direction = "westbound" if reverse else "eastbound"
     tags = sorted(set(region["tags"] + start["tags"] + end["tags"] + [direction]))
     preference = round(min(0.95, 0.62 + 0.015 * (sequence % 10) + (0.06 if "coast" in tags or "mountain" in tags else 0.0)), 2)
+    place_word = "UK" if region.get("scope", "uk") == "uk" else "scenic"
     return {
         "id": f"{start['id']}-to-{end['id']}",
         "name": f"{start['name']} to {end['name']} Scenic Drive",
         "region": region["name"],
-        "description": f"A routable scenic drive through {region['name']}, linking {start['name']} with {end['name']} via real UK roads.",
+        "description": (
+            f"A routable scenic drive through {region['name']}, linking "
+            f"{start['name']} with {end['name']} via real {place_word} roads."
+        ),
         "from": {"lat": start["lat"], "lng": start["lng"]},
         "to": {"lat": end["lat"], "lng": end["lng"]},
         "preference": preference,
         "profile": region.get("profile", "balanced"),
         "tags": tags,
+        "scope": region.get("scope", "uk"),
     }
 
 
 def build_presets() -> list[dict[str, Any]]:
-    """Build named, routable UK scenic drive presets from real anchor places."""
+    """Build named, routable scenic drive presets from UK and world anchor places."""
     presets: list[dict[str, Any]] = []
 
-    for region in REGION_DEFINITIONS:
+    all_regions = (
+        [{**r, "scope": "uk"} for r in REGION_DEFINITIONS]
+        + list(WORLD_REGION_DEFINITIONS)
+    )
+    for region in all_regions:
         anchors = [_anchor(region["id"], name, lat, lng, tags) for name, lat, lng, tags in region["anchors"]]
         pairs: list[tuple[int, int]] = []
         pairs.extend((index, index + 1) for index in range(len(anchors) - 1))
@@ -435,28 +701,41 @@ def build_presets() -> list[dict[str, Any]]:
             presets.extend([outbound, inbound])
 
     long_drives = [
-        ("highland-to-skye", "Fort William", 56.8198, -5.1052, "Portree", 57.4120, -6.1940, "Scottish Highlands to Isle of Skye", "remote-adventurous-terrain", ["mountains", "island", "lochs"]),
-        ("dales-to-lakes", "Skipton", 53.9620, -2.0160, "Kendal", 54.3280, -2.7460, "Yorkshire Dales to Lake District", "pastoral-moderate-landcover", ["dales", "lakes", "market-towns"]),
-        ("peaks-to-dales", "Bakewell", 53.2130, -1.6750, "Grassington", 54.0710, -1.9990, "Peak District to Yorkshire Dales", "valley-moderate-terrain", ["limestone", "dales", "national-parks"]),
-        ("cotswolds-to-brecon", "Cirencester", 51.7180, -1.9680, "Brecon", 51.9470, -3.3910, "Cotswolds to Brecon Beacons", "heritage-moderate-colour", ["villages", "mountains", "cross-country"]),
-        ("exmoor-to-dartmoor", "Lynton", 51.2290, -3.8350, "Tavistock", 50.5500, -4.1440, "Exmoor to Dartmoor", "moorland-moderate-terrain", ["moors", "national-parks", "devon"]),
-        ("cornwall-coast-to-dartmoor", "St Ives", 50.2110, -5.4800, "Princetown", 50.5430, -3.9890, "Cornwall Coast to Dartmoor", "coastal-moderate-colour", ["coast", "moor", "south-west"]),
-        ("snowdonia-to-pembrokeshire", "Betws-y-Coed", 53.0930, -3.8060, "St Davids", 51.8820, -5.2690, "Snowdonia to Pembrokeshire", "mountain-moderate-terrain", ["wales", "mountains", "coast"]),
-        ("northumberland-to-dales", "Bamburgh", 55.6070, -1.7170, "Hawes", 54.3050, -2.1960, "Northumberland Coast to Yorkshire Dales", "big-sky-adventurous-terrain", ["coast", "dales", "big-sky"]),
-        ("cairngorms-to-highlands", "Aviemore", 57.1950, -3.8250, "Ullapool", 57.8950, -5.1600, "Cairngorms to West Highlands", "mountain-adventurous-terrain", ["mountains", "lochs", "scotland"]),
-        ("nc500-to-skye", "Ullapool", 57.8950, -5.1600, "Dunvegan", 57.4370, -6.5800, "North Coast 500 to Isle of Skye", "coastal-adventurous-landcover", ["coast", "island", "road-trip"]),
+        ("highland-to-skye", "Fort William", 56.8198, -5.1052, "Portree", 57.4120, -6.1940, "Scottish Highlands to Isle of Skye", "remote-adventurous-terrain", ["mountains", "island", "lochs"], "uk"),
+        ("dales-to-lakes", "Skipton", 53.9620, -2.0160, "Kendal", 54.3280, -2.7460, "Yorkshire Dales to Lake District", "pastoral-moderate-landcover", ["dales", "lakes", "market-towns"], "uk"),
+        ("peaks-to-dales", "Bakewell", 53.2130, -1.6750, "Grassington", 54.0710, -1.9990, "Peak District to Yorkshire Dales", "valley-moderate-terrain", ["limestone", "dales", "national-parks"], "uk"),
+        ("cotswolds-to-brecon", "Cirencester", 51.7180, -1.9680, "Brecon", 51.9470, -3.3910, "Cotswolds to Brecon Beacons", "heritage-moderate-colour", ["villages", "mountains", "cross-country"], "uk"),
+        ("exmoor-to-dartmoor", "Lynton", 51.2290, -3.8350, "Tavistock", 50.5500, -4.1440, "Exmoor to Dartmoor", "moorland-moderate-terrain", ["moors", "national-parks", "devon"], "uk"),
+        ("cornwall-coast-to-dartmoor", "St Ives", 50.2110, -5.4800, "Princetown", 50.5430, -3.9890, "Cornwall Coast to Dartmoor", "coastal-moderate-colour", ["coast", "moor", "south-west"], "uk"),
+        ("snowdonia-to-pembrokeshire", "Betws-y-Coed", 53.0930, -3.8060, "St Davids", 51.8820, -5.2690, "Snowdonia to Pembrokeshire", "mountain-moderate-terrain", ["wales", "mountains", "coast"], "uk"),
+        ("northumberland-to-dales", "Bamburgh", 55.6070, -1.7170, "Hawes", 54.3050, -2.1960, "Northumberland Coast to Yorkshire Dales", "big-sky-adventurous-terrain", ["coast", "dales", "big-sky"], "uk"),
+        ("cairngorms-to-highlands", "Aviemore", 57.1950, -3.8250, "Ullapool", 57.8950, -5.1600, "Cairngorms to West Highlands", "mountain-adventurous-terrain", ["mountains", "lochs", "scotland"], "uk"),
+        ("nc500-to-skye", "Ullapool", 57.8950, -5.1600, "Dunvegan", 57.4370, -6.5800, "North Coast 500 to Isle of Skye", "coastal-adventurous-landcover", ["coast", "island", "road-trip"], "uk"),
+        ("zion-to-bryce", "Zion Canyon", 37.298, -113.026, "Bryce Canyon", 37.593, -112.187, "Utah Canyon Country", "desert-canyon-adventurous-terrain", ["utah", "canyon", "long-drive"], "world"),
+        ("bergen-to-geiranger", "Bergen", 60.391, 5.322, "Geiranger", 62.101, 7.207, "Norwegian Fjords", "waterside-adventurous-terrain", ["norway", "fjords", "long-drive"], "world"),
+        ("yosemite-to-big-sur", "Yosemite Valley", 37.745, -119.594, "Big Sur", 36.270, -121.807, "California Sierra Coast", "mountain-moderate-colour", ["california", "coast", "long-drive"], "world"),
+        ("denver-to-aspen", "Denver", 39.739, -104.990, "Aspen", 39.191, -106.818, "Colorado Rockies", "alpine-rock-adventurous-terrain", ["rockies", "usa", "long-drive"], "world"),
+        ("interlaken-to-zermatt", "Interlaken", 46.686, 7.863, "Zermatt", 46.020, 7.749, "Swiss Alps", "alpine-rock-adventurous-terrain", ["alps", "switzerland", "long-drive"], "world"),
+        ("banff-to-jasper", "Banff", 51.178, -115.571, "Jasper", 52.874, -118.081, "Icefields Parkway", "alpine-rock-adventurous-terrain", ["canada", "rockies", "long-drive"], "world"),
+        ("cape-town-to-knysna", "Cape Town", -33.925, 18.424, "Knysna", -34.036, 23.049, "Garden Route", "coastal-moderate-colour", ["south-africa", "coast", "long-drive"], "world"),
+        ("queenstown-to-milford", "Queenstown", -45.031, 168.663, "Milford Sound", -44.672, 167.926, "Fiordland", "mountain-adventurous-landcover", ["new-zealand", "fjords", "long-drive"], "world"),
     ]
-    for index, (slug, start_name, start_lat, start_lng, end_name, end_lat, end_lng, region_name, profile, tags) in enumerate(long_drives):
+    for index, (slug, start_name, start_lat, start_lng, end_name, end_lat, end_lng, region_name, profile, tags, scope) in enumerate(long_drives):
+        place = "UK" if scope == "uk" else "world"
         base = {
             "id": slug,
             "name": f"{start_name} to {end_name} Grand Scenic Drive",
             "region": region_name,
-            "description": f"A longer routable UK scenic drive from {start_name} to {end_name}, crossing well-known landscape regions.",
+            "description": (
+                f"A longer routable {place} scenic drive from {start_name} to {end_name}, "
+                f"crossing well-known landscape regions."
+            ),
             "from": {"lat": start_lat, "lng": start_lng},
             "to": {"lat": end_lat, "lng": end_lng},
             "preference": round(0.84 + (index % 4) * 0.02, 2),
             "profile": profile,
             "tags": sorted(set(tags + ["long-drive"])),
+            "scope": scope,
         }
         reverse = {
             **base,
@@ -479,12 +758,38 @@ def build_presets() -> list[dict[str, Any]]:
 PROFILES = build_profiles()
 PROFILE_BY_ID = {profile["id"]: profile for profile in PROFILES}
 PRESETS = build_presets()
-REGIONS = build_regions()
+REGIONS = build_regions("all")
+
+# Curated short list for the UI dropdown (full catalogue remains on /api/presets).
+FEATURED_PRESET_IDS = [
+    "highland-to-skye",
+    "dales-to-lakes",
+    "peaks-to-dales",
+    "cotswolds-to-brecon",
+    "exmoor-to-dartmoor",
+    "cornwall-coast-to-dartmoor",
+    "snowdonia-to-pembrokeshire",
+    "northumberland-to-dales",
+    "cairngorms-to-highlands",
+    "nc500-to-skye",
+    "denver-to-aspen",
+    "interlaken-to-zermatt",
+    "banff-to-jasper",
+    "queenstown-to-milford",
+    "cape-town-to-knysna",
+    "zion-to-bryce",
+    "bergen-to-geiranger",
+    "yosemite-to-big-sur",
+]
 
 
 def get_profile(pid: str) -> dict[str, Any] | None:
-    """Resolve a profile by id for route scoring code."""
     return PROFILE_BY_ID.get(pid)
+
+
+def featured_presets() -> list[dict[str, Any]]:
+    by_id = {p["id"]: p for p in PRESETS}
+    return [by_id[i] for i in FEATURED_PRESET_IDS if i in by_id]
 
 
 router = APIRouter()
@@ -504,8 +809,13 @@ def read_profile(id: str) -> dict[str, Any]:
 
 
 @router.get("/api/presets")
-def list_presets(region: str | None = None, tag: str | None = None, q: str | None = None) -> dict[str, Any]:
-    filtered = PRESETS
+def list_presets(
+    region: str | None = None,
+    tag: str | None = None,
+    q: str | None = None,
+    featured: bool = False,
+) -> dict[str, Any]:
+    filtered = featured_presets() if featured else PRESETS
     if region:
         region_text = region.lower()
         filtered = [preset for preset in filtered if region_text in preset["region"].lower() or _slug(region) in _slug(preset["region"])]
@@ -534,5 +844,7 @@ def read_preset(id: str) -> dict[str, Any]:
 
 
 @router.get("/api/regions")
-def list_regions() -> dict[str, Any]:
-    return {"count": len(REGIONS), "regions": REGIONS}
+def list_regions(scope: str = "all") -> dict[str, Any]:
+    """Return jump regions. scope=uk|world|all (default all)."""
+    regions = build_regions(scope)
+    return {"count": len(regions), "scope": (scope or "all").lower(), "regions": regions}

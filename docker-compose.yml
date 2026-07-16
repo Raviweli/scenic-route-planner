@@ -1,0 +1,47 @@
+# Scenic Route Planner — optional containers.
+#
+# Friends demo default: run the app on the host (or use profile `app` below).
+# Public OSRM is used when SCENIC_OSRM_URL is unset — no local router required.
+#
+# App-only (uvicorn on 0.0.0.0:8000, no OSRM dependency):
+#   docker compose --profile app up scenic-app
+#
+# Optional BYO router container (advanced — see docs/SELF_HOSTED_OSRM.md):
+#   docker compose up osrm
+#   then set SCENIC_OSRM_URL to http://127.0.0.1:5000/route/v1/driving/{coords}
+
+services:
+  scenic-app:
+    profiles: ["app"]
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - scenic-pip-cache:/root/.cache/pip
+    ports:
+      - "8000:8000"
+    environment:
+      SCENIC_BIND_HOST: "0.0.0.0"
+      SCENIC_PUBLIC: "1"
+      SCENIC_API_KEY: "${SCENIC_API_KEY:-changeme}"
+      SCENIC_RATE_LIMIT_PER_MIN: "${SCENIC_RATE_LIMIT_PER_MIN:-30}"
+      SCENIC_PLAN_BUDGET_SEC: "${SCENIC_PLAN_BUDGET_SEC:-30}"
+      SCENIC_MAX_INFLIGHT_PLANS: "${SCENIC_MAX_INFLIGHT_PLANS:-2}"
+      # Optional BYO: SCENIC_OSRM_URL: "http://host.docker.internal:5000/route/v1/driving/{coords}"
+    command: >
+      bash -c "pip install -q -r requirements.lock.txt
+      && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    restart: unless-stopped
+
+  osrm:
+    profiles: ["osrm"]
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data/osrm:/data
+    command: osrm-routed --algorithm mld /data/lake-district.osrm
+    restart: unless-stopped
+
+volumes:
+  scenic-pip-cache:

@@ -6,6 +6,7 @@ __pycache__/
 build/
 dist/
 .venv/
+.venv-lock/
 venv/
 env/
 .mypy_cache/
@@ -15,8 +16,10 @@ env/
 # --- Generated data & caches (rebuilt at runtime; never commit) ---
 # Satellite tiles, land-cover tiles, the SQLite store and any scored grids all
 # live under data/ and can be regenerated, so they stay out of version control.
-data/
-!data/.gitkeep
+/data/
+!/data/.gitkeep
+
+# Shipped offline climate grid: app/data/climate_grid.npz (tracked; ~65 KB).
 
 # --- Editor / OS noise ---
 .vscode/
@@ -25,6 +28,7 @@ data/
 Thumbs.db
 
 # --- Local backups / scratch ---
+/backups/
 *.v2bak
 *.bak
 *.tmp

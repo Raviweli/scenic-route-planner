@@ -7,7 +7,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from .config import HTTP_TIMEOUT
+from .config import HTTP_TIMEOUT, OVERPASS_ENDPOINTS
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ EXPORT_FORMATS = [
 
 _FORMATS_BY_ID = {item["id"]: item for item in EXPORT_FORMATS}
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URL = OVERPASS_ENDPOINTS[0] if OVERPASS_ENDPOINTS else "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT = max(45, int(HTTP_TIMEOUT))
 
 CATEGORIES = {
@@ -62,6 +62,8 @@ def _xml_escape(value: object) -> str:
 def _validate_coordinates(coordinates: list[list[float]]) -> list[tuple[float, float]]:
     if not coordinates:
         raise HTTPException(status_code=400, detail="empty coordinates")
+    if len(coordinates) > 50_000:
+        raise HTTPException(status_code=400, detail="coordinates exceed limit of 50000 points")
 
     parsed: list[tuple[float, float]] = []
     for point in coordinates:
@@ -69,6 +71,8 @@ def _validate_coordinates(coordinates: list[list[float]]) -> list[tuple[float, f
             raise HTTPException(status_code=400, detail="coordinates must be [lng, lat] pairs")
         lng = float(point[0])
         lat = float(point[1])
+        if not (-180.0 <= lng <= 180.0 and -90.0 <= lat <= 90.0):
+            raise HTTPException(status_code=400, detail="coordinates out of range")
         parsed.append((lng, lat))
     return parsed
 
@@ -165,6 +169,7 @@ def export_formats() -> dict:
 
 @router.get("/api/poi/categories")
 def poi_categories() -> dict:
+    """Experimental: POI category list — not wired into the planner UI."""
     return {
         "categories": [
             {"id": category_id, "name": _friendly_name(category_id)} for category_id in CATEGORIES
@@ -241,6 +246,7 @@ def get_pois(
     categories: str | None = None,
     limit: int = Query(default=300, ge=1, le=1000),
 ) -> dict:
+    """Experimental: Overpass POI overlay — not wired into the planner UI."""
     if (max_lat - min_lat) * (max_lng - min_lng) > 4.0:
         raise HTTPException(status_code=400, detail="bbox too large")
 

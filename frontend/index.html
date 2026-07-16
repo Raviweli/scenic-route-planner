@@ -2,26 +2,46 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Scenic Route Planner</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    :root { --panel:#1e2530; --panel2:#28313d; --accent:#4caf50; --ink:#eaeef3; --dim:#9fb0c3; }
+    :root {
+      --panel:#1e2530; --panel2:#28313d; --accent:#4caf50; --ink:#eaeef3; --dim:#9fb0c3;
+      --safe-top:env(safe-area-inset-top, 0px);
+      --safe-right:env(safe-area-inset-right, 0px);
+      --safe-bottom:env(safe-area-inset-bottom, 0px);
+      --safe-left:env(safe-area-inset-left, 0px);
+      --sheet-h:0px;
+      --vvh:100dvh;
+    }
     * { box-sizing:border-box; }
-    html,body { margin:0; height:100%; font-family:system-ui,sans-serif; }
+    html,body { margin:0; height:100%; font-family:system-ui,sans-serif; overflow:hidden; }
     #map { position:absolute; inset:0; }
     #panel { position:absolute; top:12px; left:12px; z-index:1000; width:340px; max-height:calc(100vh - 24px);
       overflow:auto; background:var(--panel); color:var(--ink); border-radius:10px; padding:14px;
-      box-shadow:0 6px 24px rgba(0,0,0,.4); }
+      box-shadow:0 6px 24px rgba(0,0,0,.4); -webkit-overflow-scrolling:touch; }
+    .sheet-handle { display:none; }
+    .panel-chrome { display:contents; }
+    .panel-scroll { display:contents; }
+    .peek-rail { display:none; }
+    .sheet-cta { display:none; }
+    .hint-short { display:none; }
     h1 { font-size:16px; margin:0 0 2px; } .sub { margin:0 0 10px; font-size:12px; color:var(--dim); }
     .tabs { display:flex; gap:4px; margin-bottom:10px; }
     .tab { flex:1; text-align:center; padding:7px 4px; font-size:13px; border-radius:6px; cursor:pointer;
-      background:var(--panel2); color:var(--dim); }
+      background:var(--panel2); color:var(--dim); border:0; margin:0; width:auto; font-weight:500; }
     .tab.active { background:var(--accent); color:#06210a; font-weight:700; }
-    .view { display:none; } .view.active { display:block; }
+    .tab:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline:2px solid var(--accent); outline-offset:2px; }
+    /* Prefer [hidden] so inactive panels stay inert for a11y; !important beats .active. */
+    .view { display:none; }
+    .view.active:not([hidden]) { display:block; }
+    .view[hidden] { display:none !important; }
+    .section-title { font-size:12px; font-weight:700; color:var(--dim); margin:14px 0 6px; text-transform:uppercase; letter-spacing:.04em; }
     .row { display:flex; gap:8px; margin-bottom:8px; }
-    .pt { flex:1; font-size:12px; background:var(--panel2); border-radius:6px; padding:6px 8px; }
-    .pt b { color:var(--accent); }
+    .pt { flex:1; font-size:12px; background:var(--panel2); border-radius:6px; padding:6px 8px; min-width:0; }
+    .pt b { color:var(--accent); word-break:break-word; }
     label { font-size:12px; display:block; margin:10px 0 4px; color:var(--dim); }
     input,select,textarea { width:100%; padding:8px; border-radius:6px; border:1px solid #3a4656;
       background:#151b24; color:var(--ink); font-size:13px; }
@@ -33,6 +53,13 @@
     button:disabled { opacity:.5; cursor:default; }
     button.active { background:var(--accent); color:#06210a; box-shadow:0 0 0 2px #4caf50 inset; }
     .hint { font-size:11px; color:var(--dim); margin-top:4px; line-height:1.5; }
+    details.advanced { margin-top:12px; border:1px solid #2f3b4a; border-radius:8px; padding:8px 10px; background:#181e27; }
+    details.advanced > summary { cursor:pointer; font-size:12px; font-weight:600; color:var(--dim);
+      list-style:none; display:flex; align-items:center; gap:6px; min-height:32px; }
+    details.advanced > summary::-webkit-details-marker { display:none; }
+    details.advanced > summary::before { content:"▸"; color:var(--accent); }
+    details.advanced[open] > summary::before { content:"▾"; }
+    details.advanced .adv-body { margin-top:8px; }
     .err { color:#ff9a9a; } .spin { color:#ffd166; display:inline-block; animation:pulse 1s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
     /* Live search progress panel */
@@ -42,8 +69,13 @@
       display:flex; align-items:center; gap:6px; }
     #searchLog .sl-phase { font-size:12px; color:var(--ink); }
     #searchLog .sl-stat { font-size:11px; color:var(--dim); margin-top:3px; }
-    .search { display:flex; gap:6px; }
+    .search { display:flex; gap:6px; align-items:stretch; }
+    .search input { flex:1; min-width:0; }
     .search button { width:auto; margin:0; }
+    #geocodeHits { margin-top:6px; max-height:140px; overflow:auto; }
+    #geocodeHits .ghit { display:block; width:100%; text-align:left; padding:7px 8px; margin:0 0 4px;
+      background:var(--panel2); color:var(--ink); border:0; border-radius:6px; font-size:12px; cursor:pointer; }
+    #geocodeHits .ghit:hover { background:#33414f; }
 
     /* Route option cards (Google-Maps style switcher) */
     #routeList { margin-top:12px; }
@@ -52,144 +84,493 @@
     .ropt:hover { border-color:#3a4656; }
     .ropt.sel { border-color:var(--accent); background:#22303a; }
     .ropt .swatch { width:10px; align-self:stretch; border-radius:4px; }
-    .ropt .body { flex:1; }
+    .ropt .body { flex:1; min-width:0; }
     .ropt .title { font-size:13px; font-weight:600; }
     .ropt .meta { font-size:11px; color:var(--dim); margin-top:2px; }
     .ropt .badge { font-size:11px; font-weight:700; color:#06210a; background:var(--accent);
-      border-radius:10px; padding:2px 8px; }
+      border-radius:10px; padding:2px 8px; flex-shrink:0; }
 
     /* Directions */
     #directions { margin-top:12px; }
-    .dirhead { font-size:13px; font-weight:700; margin-bottom:6px; display:flex; justify-content:space-between; }
+    .dirhead { font-size:13px; font-weight:700; margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; }
     .dstep { display:flex; gap:9px; padding:7px 4px; border-bottom:1px solid #2b3543; cursor:pointer; }
     .dstep:hover { background:#22303a; }
     .dstep .n { color:var(--accent); font-weight:700; min-width:18px; }
-    .dstep .t { flex:1; font-size:12px; line-height:1.4; }
+    .dstep .t { flex:1; font-size:12px; line-height:1.4; min-width:0; }
     .dstep .d { font-size:11px; color:var(--dim); white-space:nowrap; }
 
     .legend { margin-top:10px; font-size:11px; }
     .legend .bar { height:10px; border-radius:5px; background:linear-gradient(90deg,#c0503c,#c9a227,#4caf50); }
     .card { background:var(--panel2); border-radius:7px; padding:8px 10px; margin-bottom:7px; font-size:12px; }
     .card h4 { margin:0 0 3px; font-size:13px; } .card .meta { color:var(--dim); font-size:11px; }
-    .cardrow { display:flex; gap:6px; margin-top:6px; }
+    .cardrow { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
     .chip { display:inline-block; background:#33414f; border-radius:10px; padding:2px 8px; font-size:10px; margin:2px 3px 0 0; }
     .starrow span { cursor:pointer; font-size:16px; color:#5a6675; } .starrow span.on { color:#ffd166; }
     .modal { position:absolute; inset:0; z-index:2000; background:rgba(0,0,0,.5); display:none;
-      align-items:center; justify-content:center; }
+      align-items:center; justify-content:center; padding:max(12px, var(--safe-top)) max(12px, var(--safe-right))
+      max(12px, var(--safe-bottom)) max(12px, var(--safe-left)); }
     .modal.open { display:flex; }
-    .modal .box { background:var(--panel); border-radius:10px; padding:16px; width:320px; }
+    .modal .box { background:var(--panel); border-radius:10px; padding:16px; width:min(320px, 100%); max-height:min(90vh, 100%);
+      overflow:auto; -webkit-overflow-scrolling:touch; }
     /* Hover explainability tooltip */
     .leaflet-tooltip.why-tip { background:#1e2530; color:var(--ink); border:1px solid #3a4656;
       box-shadow:0 4px 16px rgba(0,0,0,.5); border-radius:8px; padding:8px 10px; }
     .leaflet-tooltip.why-tip:before { border-top-color:#3a4656; }
+    #panelToggle { display:none; }
+    #drawDock { display:none !important; }
+
+    /* Desktop: compare/reset stay as a flat button stack (details always open, no summary) */
+    .plan-more-actions {
+      border:none; padding:0; background:transparent; margin-top:0;
+    }
+    .plan-more-actions > summary { display:none; }
+    .plan-more-actions .adv-body { margin-top:0; }
+
+    /* Desktop: "More options" fields stay in the main flow (no disclosure chrome) */
+    @media (min-width: 641px) {
+      details.more-opts {
+        border:none; padding:0; background:transparent; margin-top:4px;
+      }
+      details.more-opts > summary { display:none; }
+      details.more-opts .adv-body { margin-top:0; }
+    }
+
+    /* Narrow viewports: bottom sheet — map stays primary above */
+    @media (max-width: 640px) {
+      #panel {
+        top:auto; bottom:0; left:0; right:0; width:100%; max-width:100%;
+        max-height:none;
+        height:auto;
+        display:flex; flex-direction:column;
+        border-radius:18px 18px 0 0; padding:0;
+        padding-bottom:var(--safe-bottom);
+        box-shadow:0 -10px 32px rgba(0,0,0,.5);
+        overflow:hidden;
+        transition: max-height .22s ease;
+      }
+      #panel:not(.collapsed) {
+        max-height:min(48vh, calc(var(--vvh, 100dvh) - 4.5rem));
+      }
+      #panel:not(.collapsed).sheet-full {
+        max-height:min(90vh, calc(var(--vvh, 100dvh) - 2.25rem));
+      }
+      .panel-chrome {
+        display:flex; flex-direction:column; align-items:stretch; flex-shrink:0;
+        padding:4px 12px 8px; gap:6px; border-bottom:1px solid #2b3543;
+      }
+      .sheet-handle {
+        display:block; width:44px; height:5px; margin:6px auto 2px;
+        border-radius:999px; background:#6b7888;
+        padding:10px 48px; background-clip:content-box;
+        cursor:pointer; touch-action:none;
+      }
+      #panelToggle {
+        display:none;
+      }
+      .panel-chrome h1 { font-size:15px; margin:0; line-height:1.25; }
+      .panel-scroll {
+        display:block; flex:1 1 auto; min-height:0; overflow:auto;
+        padding:6px 14px 12px; -webkit-overflow-scrolling:touch;
+        overscroll-behavior:contain;
+      }
+
+      /* Peek rail: map tools without opening the sheet */
+      .peek-rail { display:flex; flex-direction:column; gap:6px; }
+      #panel:not(.collapsed) .peek-rail { display:none; }
+      #panel.collapsed .panel-chrome h1,
+      #panel.collapsed .panel-chrome > .sheet-brand { display:none; }
+      #panel.collapsed .panel-chrome { border-bottom:0; padding-bottom:calc(8px + var(--safe-bottom)); }
+      #panel.collapsed .panel-scroll { display:none !important; }
+      #panel.collapsed .sheet-cta { display:none !important; }
+
+      .peek-modes {
+        display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;
+      }
+      .peek-chip {
+        margin:0; min-height:44px; padding:8px 4px; font-size:13px; font-weight:600;
+        border-radius:10px; background:var(--panel2); color:var(--ink);
+        display:flex; align-items:center; justify-content:center; text-align:center;
+        line-height:1.15;
+      }
+      .peek-chip.active {
+        background:var(--accent); color:#06210a;
+        box-shadow:0 0 0 2px rgba(76,175,80,.35);
+      }
+      .peek-chip.peek-expand {
+        background:#37465a;
+      }
+      .peek-summary {
+        display:flex; gap:8px; font-size:12px; color:var(--dim); line-height:1.3;
+      }
+      .peek-summary .peek-pt {
+        flex:1; min-width:0; background:#181e27; border-radius:8px; padding:8px 10px;
+      }
+      .peek-summary b { color:var(--accent); margin-right:4px; }
+      .peek-summary .peek-val {
+        color:var(--ink); display:inline-block; max-width:100%;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom;
+      }
+
+      #panel.collapsed.drawing .panel-chrome { padding-bottom:calc(10px + var(--safe-bottom)); }
+      #panel.collapsed.drawing #drawDock { display:block !important; }
+      .draw-dock { margin-top:2px; }
+      .draw-dock .row { margin-bottom:4px; }
+
+      /* Sticky primary CTA when sheet is open */
+      .sheet-cta {
+        display:none; flex-shrink:0; gap:8px; align-items:stretch;
+        padding:10px 14px calc(10px + var(--safe-bottom));
+        border-top:1px solid #2b3543;
+        background:linear-gradient(180deg, #1a222c, var(--panel));
+      }
+      #panel:not(.collapsed) .sheet-cta { display:flex; }
+      .sheet-cta-btn {
+        margin:0; flex:1; min-height:48px; font-size:16px; font-weight:700;
+        border-radius:10px;
+      }
+      .sheet-cta-secondary {
+        margin:0; flex:0 0 auto; min-width:48px; min-height:48px; width:auto;
+        padding:10px 14px; font-size:14px; border-radius:10px;
+      }
+      /* Inline Find routes lives in sticky bar on phones */
+      #routeBtn { display:none; }
+
+      /* Sheet height control (half ↔ full) */
+      .sheet-size-row {
+        display:flex; gap:6px; align-items:center;
+      }
+      .sheet-size-row .sheet-size-btn {
+        margin:0; flex:1; min-height:40px; padding:8px; font-size:13px;
+        background:var(--panel2); color:var(--ink); border-radius:8px;
+      }
+      .sheet-size-btn.on {
+        background:var(--accent); color:#06210a; font-weight:700;
+      }
+      #panel.collapsed .sheet-size-row { display:none; }
+
+      /* Compact form + progressive disclosure */
+      .sub { margin:0 0 8px; font-size:12px; }
+      .hint-long { display:none; }
+      .hint-short { display:block; }
+      label { margin:8px 0 3px; font-size:12px; }
+      .section-title { margin:10px 0 4px; }
+      .row.endpoints { margin-bottom:6px; }
+      .pt { font-size:13px; padding:10px; }
+      details.more-opts { margin-top:10px; }
+      .plan-more-actions {
+        margin-top:10px; border:1px solid #2f3b4a; border-radius:8px;
+        padding:8px 10px; background:#181e27;
+      }
+      .plan-more-actions > summary {
+        display:flex; min-height:44px; font-size:14px; font-weight:600; color:var(--dim);
+      }
+      .plan-more-actions .adv-body { margin-top:8px; }
+
+      /* Touch-friendly controls */
+      .tab { min-height:44px; padding:10px 6px; font-size:14px; }
+      .row { gap:8px; flex-wrap:wrap; }
+      .row > button { flex:1 1 calc(50% - 4px); min-height:44px; margin-top:0; padding:12px 10px; font-size:14px; }
+      .row > button.mini { flex:0 1 auto; min-height:40px; padding:10px 12px; font-size:13px; }
+      button { min-height:44px; padding:12px 10px; font-size:14px; margin-top:10px; }
+      button.mini { min-height:40px; padding:10px 12px; font-size:13px; }
+      input, select, textarea { font-size:16px; padding:11px 10px; min-height:44px; } /* 16px avoids iOS zoom */
+      .search button { min-height:44px; padding:10px 14px; }
+      #geocodeHits {
+        max-height:min(36vh, 220px); margin-top:8px; padding:4px;
+        border:1px solid #2f3b4a; border-radius:10px; background:#151b24;
+      }
+      #geocodeHits .ghit {
+        padding:14px 12px; font-size:14px; min-height:48px; margin-bottom:6px;
+        border-radius:8px; line-height:1.35;
+        display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+        overflow:hidden;
+      }
+      .ropt {
+        padding:14px 12px; min-height:56px; border-radius:12px; margin-bottom:8px;
+        gap:12px; -webkit-tap-highlight-color:transparent;
+      }
+      .ropt.sel { box-shadow:0 0 0 1px var(--accent); }
+      .ropt .title { font-size:15px; }
+      .ropt .meta { font-size:12px; margin-top:3px; }
+      .ropt .badge { font-size:13px; padding:4px 10px; border-radius:12px; }
+      .ropt .swatch { width:8px; border-radius:6px; }
+      .dstep { padding:14px 6px; }
+      .dstep .t { font-size:14px; }
+      details.advanced > summary { min-height:44px; font-size:14px; }
+      label[style*="display:flex"] { min-height:44px; }
+      input[type="range"] { min-height:28px; touch-action:none; }
+      input[type="checkbox"], input[type="radio"] { width:20px; height:20px; min-height:0; padding:0; }
+      #exportFmt { min-height:44px; max-width:none !important; flex:1 1 120px; }
+      #actionRow { align-items:stretch; }
+      #actionRow > * { margin-top:0; }
+
+      /* Map chrome clears the live sheet height (incl. peek) */
+      .leaflet-top.leaflet-left { top:max(8px, var(--safe-top)); left:max(8px, var(--safe-left)); }
+      .leaflet-top.leaflet-right { top:max(8px, var(--safe-top)); right:max(8px, var(--safe-right)); }
+      .leaflet-bottom {
+        bottom:calc(var(--sheet-h, 5.5rem) + 6px);
+        transition:bottom .2s ease;
+      }
+      .leaflet-control-attribution {
+        max-width:min(100vw - 24px, 280px);
+        font-size:10px !important;
+        line-height:1.25;
+        white-space:normal;
+      }
+      .leaflet-control-layers { max-width:min(220px, calc(100vw - 24px)); }
+      .leaflet-control-layers-expanded { font-size:13px; }
+      .leaflet-bar a { width:40px !important; height:40px !important; line-height:40px !important; }
+
+      h1 { font-size:15px; }
+      .hint { font-size:12px; }
+    }
+
+    /* Short / landscape phones: keep a usable map strip */
+    @media (max-width: 640px) and (max-height: 480px) {
+      #panel:not(.collapsed):not(.sheet-full) {
+        max-height:min(42vh, calc(var(--vvh, 100dvh) - 3rem));
+      }
+      #panel:not(.collapsed).sheet-full {
+        max-height:min(78vh, calc(var(--vvh, 100dvh) - 1.5rem));
+      }
+      .peek-modes { grid-template-columns:repeat(4, 1fr); gap:4px; }
+      .peek-chip { min-height:40px; font-size:12px; padding:6px 2px; }
+      .peek-summary { display:none; }
+      .sheet-cta { padding:8px 12px calc(8px + var(--safe-bottom)); }
+      .sheet-cta-btn { min-height:44px; font-size:15px; }
+      .panel-chrome { padding:2px 10px 6px; }
+    }
+
+    /* Tablets in portrait: slightly wider comfortable sheet */
+    @media (min-width: 641px) and (max-width: 900px) and (pointer: coarse) {
+      #panel {
+        width:min(380px, calc(100vw - 24px));
+        max-height:calc(100dvh - 24px - var(--safe-top) - var(--safe-bottom));
+        top:max(12px, var(--safe-top));
+        left:max(12px, var(--safe-left));
+      }
+      button, .tab { min-height:40px; }
+      input, select, textarea { font-size:16px; min-height:40px; }
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div id="panel">
-    <h1>🗺️ Scenic Route Planner</h1>
+    <div class="panel-chrome">
+      <div class="sheet-handle" id="sheetHandle" role="button" tabindex="0"
+        aria-label="Resize options sheet"></div>
+      <button type="button" id="panelToggle" aria-expanded="true" aria-controls="panelScroll">Hide options</button>
+      <h1 class="sheet-brand">Scenic Route Planner</h1>
+      <div class="sheet-size-row" id="sheetSizeRow" hidden>
+        <button type="button" class="sheet-size-btn secondary" id="sheetHalfBtn" aria-pressed="true">Half</button>
+        <button type="button" class="sheet-size-btn secondary" id="sheetFullBtn" aria-pressed="false">Full</button>
+        <button type="button" class="sheet-size-btn secondary" id="sheetHideBtn">Hide</button>
+      </div>
+      <div class="peek-rail" id="peekRail">
+        <div class="peek-modes" role="group" aria-label="Map tools">
+          <button type="button" class="peek-chip" id="peekSetA" aria-pressed="false">Start</button>
+          <button type="button" class="peek-chip" id="peekSetB" aria-pressed="false">End</button>
+          <button type="button" class="peek-chip" id="peekDraw" aria-pressed="false">Draw</button>
+          <button type="button" class="peek-chip peek-expand" id="peekExpand">Options</button>
+        </div>
+        <div class="peek-summary" aria-live="polite">
+          <div class="peek-pt"><b>A</b><span class="peek-val" id="peekLabelA">—</span></div>
+          <div class="peek-pt"><b>B</b><span class="peek-val" id="peekLabelB">—</span></div>
+        </div>
+      </div>
+      <div id="drawDock" class="draw-dock" hidden>
+        <div class="row">
+          <button id="drawUndoDock" class="secondary mini" type="button">Undo last</button>
+          <button id="drawFinishDock" type="button" disabled>Finish</button>
+          <button id="drawCancelDock" class="secondary mini" type="button">Cancel draw</button>
+        </div>
+        <div class="hint">Tap the map to trace. Finish scores on real roads.</div>
+      </div>
+    </div>
+    <div class="panel-scroll" id="panelScroll">
     <p class="sub">Pick a start and end — compare scenic routes on real roads.</p>
 
-    <div class="tabs">
-      <div class="tab active" data-view="plan">Plan a route</div>
-      <div class="tab" data-view="saved">My routes</div>
+    <div id="hostKeyRow" style="display:none;margin-bottom:10px;">
+      <label for="hostKey">Host key</label>
+      <input id="hostKey" type="password" autocomplete="off" spellcheck="false"
+        placeholder="Shared secret from your host" aria-label="Host API key" />
+      <div class="hint">Required on this shared host. Stored in this browser tab only.</div>
     </div>
 
-    <!-- PLAN -->
-    <div class="view active" id="view-plan">
+    <div class="tabs" role="tablist" aria-label="Main panels">
+      <button type="button" class="tab active" role="tab" id="tab-plan" data-view="plan"
+        aria-selected="true" aria-controls="view-plan">Plan a route</button>
+      <button type="button" class="tab" role="tab" id="tab-saved" data-view="saved"
+        aria-selected="false" aria-controls="view-saved">My routes</button>
+    </div>
+
+    <div class="view active" id="view-plan" role="tabpanel" aria-labelledby="tab-plan">
       <div class="search">
-        <input id="q" placeholder="Search a place (e.g. Keswick)" />
-        <button id="searchBtn" class="secondary mini">Go</button>
+        <input id="q" placeholder="Search a place (e.g. Keswick)" aria-label="Search a place" />
+        <button id="searchBtn" class="secondary mini" type="button">Go</button>
       </div>
-      <div class="row" style="margin-top:8px;">
+      <div id="geocodeHits" class="hint" style="display:none;" role="listbox" aria-label="Place search results"></div>
+      <div class="row endpoints" style="margin-top:8px;">
         <div class="pt">A: <b id="ptA">—</b></div>
         <div class="pt">B: <b id="ptB">—</b></div>
       </div>
       <div class="row">
-        <button id="setA" class="secondary">📍 Set start</button>
-        <button id="setB" class="secondary">🏁 Set end</button>
+        <button id="setA" class="secondary" type="button" aria-pressed="false">Set start</button>
+        <button id="setB" class="secondary" type="button" aria-pressed="false">Set end</button>
       </div>
-      <div class="hint">Tap <b>Set start</b>, then click the map — it auto-advances to the end. Pan &amp; zoom freely otherwise; drag the A/B pins to fine-tune.</div>
+      <div class="row">
+        <button id="setVia" class="secondary" type="button" aria-pressed="false">Add via</button>
+        <button id="clearVias" class="secondary mini" type="button">Clear vias</button>
+      </div>
+      <div class="row">
+        <button id="drawToggle" class="secondary" type="button" aria-pressed="false">Draw route</button>
+      </div>
+      <div id="drawControls" style="display:none;">
+        <div class="row">
+          <button id="drawUndo" class="secondary mini" type="button">Undo last</button>
+          <button id="drawFinish" type="button" disabled>Finish</button>
+          <button id="drawCancel" class="secondary mini" type="button">Cancel draw</button>
+        </div>
+        <div class="hint">Click the map to trace your route. Finish to score on real roads. Each segment follows roads along the line you drew between clicks.</div>
+      </div>
+      <div id="viaList" class="hint" style="margin-top:4px;"></div>
+      <div class="hint hint-long">Tap <b>Set start</b>, then click the map — it auto-advances to the end. Use <b>Add via</b> for must-pass stops. Pan &amp; zoom freely otherwise; drag the A/B pins to fine-tune.</div>
+      <div class="hint hint-short">Tap Start/End on the peek bar or below, then tap the map. Drag pins to fine-tune.</div>
 
-      <label>Scenery to favour</label>
-      <select id="profile"></select>
+      <label for="presetPick">Try a scenic drive</label>
+      <select id="presetPick" aria-label="Load a scenic drive preset"><option value="">Choose a preset…</option></select>
 
-      <label>How scenic vs. how direct? <span id="prefVal" style="color:var(--accent)">Balanced</span></label>
-      <input type="range" id="pref" min="0" max="1" step="0.05" value="0.6" />
+      <label for="profile">Scenery to favour</label>
+      <select id="profile" aria-label="Scenery profile"></select>
+
+      <label for="pref">How scenic vs. how direct? <span id="prefVal" style="color:var(--accent)">Balanced</span></label>
+      <input type="range" id="pref" min="0" max="1" step="0.05" value="0.6" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0.6" />
       <div class="hint" style="display:flex;justify-content:space-between;"><span>Quickest</span><span>Most scenic</span></div>
 
-      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;">
-        <input type="checkbox" id="avoidMw" style="width:auto;" checked />
-        🛣️ Avoid motorways (harsh)
-      </label>
+      <details class="advanced more-opts" id="moreOpts" open>
+        <summary>More options</summary>
+        <div class="adv-body">
+          <label style="display:flex;align-items:center;gap:8px;margin-top:4px;cursor:pointer;">
+            <input type="checkbox" id="avoidMw" style="width:auto;" />
+            Avoid motorways (no motorways)
+          </label>
+          <div class="hint">Hard ban — recommended routes must have zero motorway km when any non-motorway option exists.</div>
 
-      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
-        <input type="checkbox" id="exploreAll" style="width:auto;" checked />
-        🏞️ Explore everything (ignore travel time, divert via national parks)
-      </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
+            <input type="checkbox" id="exploreAll" style="width:auto;" />
+            Explore everything (ignore travel time; scenic attractors / national parks when in range)
+          </label>
+          <div class="hint">Worldwide hotspots always; named attractors divert the route when the corridor hits the seed list.</div>
 
-      <label style="margin-top:12px;">Minimum scenic score <span id="minScenicVal" style="color:var(--accent)">Off</span></label>
-      <input type="range" id="minScenic" min="0" max="90" step="5" value="0" />
-      <div class="hint">Hard floor — the route will detour and lengthen as needed to hit this. Higher targets take longer to compute. 0 = off.</div>
+          <label for="regionJump">Jump to region</label>
+          <select id="regionJump" aria-label="Jump to region"><option value="">Choose a region…</option></select>
 
-      <button id="routeBtn">Find routes</button>
-      <button id="resetBtn" class="secondary">Reset</button>
+          <label for="minScenic" style="margin-top:12px;">Minimum scenic score <span id="minScenicVal" style="color:var(--accent)">Off</span></label>
+          <input type="range" id="minScenic" min="0" max="90" step="5" value="0" aria-valuemin="0" aria-valuemax="90" aria-valuenow="0" />
+          <div class="hint">Hard floor — only routes that meet it can be recommended; if none do, the most scenic candidate is chosen (not the fastest). Higher targets take longer. 0 = off.</div>
+        </div>
+      </details>
 
-      <div id="stats"></div>
+      <details class="advanced" id="advancedOpts">
+        <summary>Advanced</summary>
+        <div class="adv-body">
+          <label class="section-title" style="margin-top:4px;">Routing mode</label>
+          <div class="row" style="margin-bottom:4px;">
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;flex:1;">
+              <input type="radio" name="routingMode" id="routingRoad" value="road" style="width:auto;" checked />
+              Road-first
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;flex:1;">
+              <input type="radio" name="routingMode" id="routingField" value="field" style="width:auto;" />
+              Scenic field (beta)
+            </label>
+          </div>
+          <div class="hint">Road-first uses OSRM scenic search (default). Field mode paints a wide scenic heatmap, finds green corridors, then steers OSRM through them.</div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;" id="fieldHeatmapRow">
+            <input type="checkbox" id="fieldHeatmap" style="width:auto;" checked />
+            Show scenic heatmap while building (field mode)
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
+            <input type="checkbox" id="timeBudget" style="width:auto;" checked />
+            Plan time budget (~30s)
+          </label>
+          <div class="hint">On by default for shared demos. Turn off to finish explore / hard-target fully — cold corridors may take several minutes.</div>
+        </div>
+      </details>
 
-      <!-- live search progress -->
-      <div id="searchProgress" style="display:none;">
-        <div class="sp-head"><span class="spin">🛰️</span> Live route search</div>
+      <button id="routeBtn" type="button">Find routes</button>
+      <details class="advanced plan-more-actions" id="extraActions" open>
+        <summary>Compare &amp; reset</summary>
+        <div class="adv-body">
+          <button id="compareBtn" class="secondary" type="button">Compare fastest vs scenic</button>
+          <button id="compareFieldBtn" class="secondary" type="button">Compare road vs field</button>
+          <button id="resetBtn" class="secondary" type="button">Reset</button>
+        </div>
+      </details>
+
+      <div id="stats" aria-live="polite"></div>
+
+      <div id="searchProgress" style="display:none;" aria-live="polite">
+        <div class="sp-head"><span class="spin" aria-hidden="true">*</span> Live route search</div>
         <div id="searchLog"></div>
       </div>
 
-      <!-- route option switcher -->
       <div id="routeList"></div>
 
-      <!-- action row (appears once a route is selected) -->
       <div class="row" id="actionRow" style="display:none;">
-        <button id="saveBtn" class="secondary">💾 Save</button>
-        <select id="exportFmt" class="secondary" style="max-width:120px;"><option value="">Export…</option></select>
+        <button id="saveBtn" class="secondary" type="button">Save</button>
+        <select id="exportFmt" class="secondary" style="max-width:120px;" aria-label="Export format"><option value="">Export…</option></select>
       </div>
 
-      <!-- turn-by-turn directions -->
       <div id="directions"></div>
 
       <div class="legend" id="legend" style="display:none;">Scenic score along the selected route<div class="bar"></div>
         <div style="display:flex;justify-content:space-between;"><span>built-up</span><span>scenic</span></div>
-        <div class="hint">💡 Hover the coloured route to see <b>why</b> each stretch scores as it does.</div>
+        <div class="hint">Hover the coloured route to see <b>why</b> each stretch scores as it does.</div>
       </div>
     </div>
 
-    <!-- SAVED -->
-    <div class="view" id="view-saved">
+    <div class="view" id="view-saved" role="tabpanel" aria-labelledby="tab-saved" hidden>
       <div class="row">
-        <button id="reloadSaved" class="secondary mini">↻ Reload</button>
-        <button id="favOnly" class="secondary mini">★ Favourites</button>
+        <button id="reloadSaved" class="secondary mini" type="button">Reload</button>
+        <button id="favOnly" class="secondary mini" type="button" aria-pressed="false">Favourites</button>
       </div>
-      <input id="savedSearch" placeholder="Search my routes…" style="margin-top:6px;" />
+      <label for="savedSearch" style="margin-top:6px;">Search my routes</label>
+      <input id="savedSearch" placeholder="Search my routes…" />
       <div id="savedList" style="margin-top:8px;"></div>
+
+      <div class="section-title">Recent plans</div>
+      <div class="row">
+        <button id="reloadHistory" class="secondary mini" type="button">History</button>
+        <button id="clearHistory" class="secondary mini" type="button">Clear</button>
+      </div>
+      <div id="historyList" style="margin-top:8px;"></div>
+    </div>
+    </div>
+    <div class="sheet-cta" id="sheetCta">
+      <button type="button" id="routeBtnSheet" class="sheet-cta-btn">Find routes</button>
+      <button type="button" id="sheetCollapseBtn" class="secondary sheet-cta-secondary" aria-label="Hide options">Map</button>
     </div>
   </div>
 
-  <!-- SAVE MODAL -->
-  <div class="modal" id="saveModal">
+  <div class="modal" id="saveModal" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
     <div class="box">
-      <h1>Save route</h1>
-      <label>Name</label><input id="svName" placeholder="e.g. Keswick coast loop" />
-      <label>Tags (comma separated)</label><input id="svTags" placeholder="lakes, coastal" />
-      <label>Notes</label><textarea id="svNotes"></textarea>
+      <h1 id="saveTitle">Save route</h1>
+      <label for="svName">Name</label><input id="svName" placeholder="e.g. Keswick coast loop" />
+      <label for="svTags">Tags (comma separated)</label><input id="svTags" placeholder="lakes, coastal" />
+      <label for="svNotes">Notes</label><textarea id="svNotes"></textarea>
       <label>Rating</label>
-      <div class="starrow" id="svStars"><span data-v="1">★</span><span data-v="2">★</span><span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span></div>
+      <div class="starrow" id="svStars" role="group" aria-label="Rating"><span data-v="1">★</span><span data-v="2">★</span><span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span></div>
       <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="svFav" style="width:auto;"/> Favourite</label>
       <div class="row" style="margin-top:10px;">
-        <button id="svConfirm">Save</button>
-        <button id="svCancel" class="secondary">Cancel</button>
+        <button id="svConfirm" type="button">Save</button>
+        <button id="svCancel" class="secondary" type="button">Cancel</button>
       </div>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=mobile-sheet-2"></script>
 </body>
 </html>

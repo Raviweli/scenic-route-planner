@@ -1,4 +1,10 @@
-﻿"""Browsable feature catalog for Scenic Route Planner capabilities."""
+﻿"""Browsable feature catalog for Scenic Route Planner capabilities.
+
+Experimental API (`/api/features*`) — not wired into the planner UI.
+Catalog text matches what the shell actually supports: curated scenery styles,
+featured presets (`FEATURED_PRESET_IDS`), plan/compare/save/history/export.
+POI overlays and heatmap tooling are listed as experimental / not in UI.
+"""
 from __future__ import annotations
 
 import re
@@ -11,49 +17,52 @@ _CATALOG_CACHE: dict[str, Any] | None = None
 
 _EXPORT_FORMATS = ("gpx", "geojson", "kml", "csv")
 
+# Curated scenery styles shown in the UI (must stay aligned with frontend STYLES).
+_UI_SCENERY_STYLES = [
+    ("balanced", "A bit of everything", "Default balanced scenic blend."),
+    ("coastal-moderate-landcover", "Coast & sea", "Favours coastal land cover and open colour."),
+    ("mountain-moderate-terrain", "Mountains & hills", "Favours terrain relief."),
+    ("waterside-moderate-colour", "Lakes & rivers", "Favours waterside colour and lakes."),
+    ("woodland-moderate-landcover", "Forests & woodland", "Favours woodland land cover."),
+    ("pastoral-moderate-landcover", "Countryside & villages", "Favours pastoral countryside."),
+]
+
 _SIGNAL_CONTROLS = [
-    ("colour-weight", "Colour Weight", "Adjusts how strongly colour-derived scenic signals influence route scoring."),
-    ("terrain-weight", "Terrain Weight", "Adjusts how much elevation and terrain variation influence scenic scoring."),
-    ("landcover-weight", "Landcover Weight", "Adjusts the contribution of woodland, water, parkland, and other landcover signals."),
-    ("detour-factor", "Detour Factor", "Limits how much longer a scenic alternative may be compared with the fastest route."),
     ("preference-slider", "Preference Slider", "Balances shortest-time routing against maximum scenic value from 0.0 to 1.0."),
-    ("sample-spacing", "Sample Spacing", "Controls how frequently route geometry is sampled for scenic scoring."),
-    ("tile-zoom", "Tile Zoom", "Sets the map tile zoom level used when collecting colour and terrain signals."),
-    ("downscale", "Downscale", "Reduces source imagery resolution to trade detail for faster scoring throughput."),
+    ("min-scenic", "Minimum Scenic Target", "Hard floor (0–100); only qualifying routes are recommended; unmet → most scenic, not fastest."),
+    ("avoid-motorways", "Avoid Motorways", "Hard ban on motorway km when any non-motorway candidate exists (no motorways)."),
+    ("explore-all", "Explore Everything", "Disregards travel time and diverts through nearby national parks."),
+    ("time-budget", "Plan Time Budget", "Optional ~30s wall-clock gate; turn off in Advanced for full explore/hard-target on cold corridors."),
 ]
 
 _CORE_ACTIONS = [
-    ("plan-route", "Plan Route", "Calculate a route between selected start and destination points."),
-    ("compare-fastest-vs-scenic", "Compare Fastest vs Scenic", "Compare the quickest route with the most scenic available alternative."),
+    ("plan-route", "Plan Route", "Live-streamed scenic search between start and end on real roads."),
+    ("compare-fastest-vs-scenic", "Compare Fastest vs Scenic", "Side-by-side fastest and most-scenic routes."),
     ("save-route", "Save Route", "Persist a planned route for later retrieval."),
     ("name-route", "Name Route", "Assign a user-friendly name to a saved route."),
     ("tag-route", "Tag Route", "Attach searchable tags such as coastal, forest, family, or weekend."),
     ("rate-route", "Rate Route", "Record a user rating that can help sort and revisit routes."),
     ("favourite-route", "Favourite Route", "Mark a route as a favourite for quick access."),
-    ("route-history", "Route History", "Browse previously planned routes and comparisons."),
-    ("geocode-search", "Geocode Search", "Search for places and convert them into route waypoints."),
-    ("export-route", "Export Route", "Download the active route in a supported interchange format."),
-    ("poi-toggle", "POI Toggle", "Show or hide selected point-of-interest overlay categories."),
+    ("route-history", "Route History", "Browse previously planned routes and reuse A/B."),
+    ("geocode-search", "Geocode Search", "Search for places and set start/end markers."),
+    ("export-route", "Export Route", "Download the active route as GPX, GeoJSON, KML, or CSV."),
     ("region-jump", "Region Jump", "Move the map directly to a known planning region."),
-    ("profile-select", "Profile Select", "Choose the scenic scoring profile used for route planning."),
-    ("waypoint-scenic-search", "Waypoint Scenic Search", "Find scenic waypoint candidates near the current route corridor."),
-    ("live-scoring", "Live Scoring", "Score a coordinate or route segment on demand using the scenic pipeline."),
+    ("profile-select", "Scenery Style", "Choose one of the curated scenery styles (not the full profile catalogue)."),
+    ("featured-preset", "Featured Preset", "Load a curated drive from FEATURED_PRESET_IDS via /api/presets?featured=true."),
+    ("live-scoring-explain", "Segment Explainability", "Hover a road segment to see colour / terrain / land-cover breakdown."),
+]
+
+_EXPERIMENTAL_NOTES = [
+    ("poi-overlay", "POI Overlay", "Experimental /api/poi — not wired into the UI."),
+    ("heatmap-cells", "Heatmap Cells", "Experimental /api/cells + build_grid — optional tooling, not the live planner."),
+    ("feature-catalog", "Feature Catalog", "This /api/features dump — experimental; UI does not consume it."),
 ]
 
 _KEYBOARD_SHORTCUTS = [
     ("p", "P", "Plan the current route."),
-    ("s", "S", "Save the current route."),
-    ("c", "C", "Compare fastest and scenic routes."),
-    ("f", "F", "Toggle favourite on the active route."),
-    ("slash", "/", "Focus the geocode search field."),
-    ("e", "E", "Open route export options."),
-    ("o", "O", "Toggle POI overlays."),
-    ("r", "R", "Open the region jump list."),
-    ("g", "G", "Show route history."),
-    ("t", "T", "Tag the active saved route."),
-    ("plus", "+", "Increase scenic preference."),
-    ("minus", "-", "Decrease scenic preference."),
-    ("digits-1-9", "1-9", "Jump to the corresponding pinned region."),
+    ("s", "S", "Open the save-route dialog when a route is selected."),
+    ("slash", "/", "Focus the place-search field."),
+    ("escape", "Esc", "Close the save dialog or disarm point placement."),
 ]
 
 
@@ -84,25 +93,26 @@ def _load_catalog_data() -> tuple[list[dict[str, Any]], list[dict[str, Any]], li
         return [], [], []
 
     profiles = getattr(catalog_data, "PROFILES", []) or []
-    presets = getattr(catalog_data, "PRESETS", []) or []
+    featured_fn = getattr(catalog_data, "featured_presets", None)
+    if callable(featured_fn):
+        presets = list(featured_fn() or [])
+    else:
+        presets = list(getattr(catalog_data, "PRESETS", []) or [])[:20]
     regions = getattr(catalog_data, "REGIONS", []) or []
-    return list(profiles), list(presets), list(regions)
+    return list(profiles), presets, list(regions)
 
 
-def _load_exports() -> tuple[dict[str, Any], list[Any]]:
+def _load_export_formats() -> list[Any]:
     try:
         from app import exports  # type: ignore
-    except Exception:  # noqa: BLE001 - export module may be temporarily unavailable.
-        return {}, list(_EXPORT_FORMATS)
+    except Exception:  # noqa: BLE001
+        return list(_EXPORT_FORMATS)
 
-    categories = getattr(exports, "CATEGORIES", {}) or {}
-    formats = None
     for attr in ("EXPORT_FORMATS", "FORMATS", "FORMATS_LIST", "SUPPORTED_FORMATS", "EXPORTS"):
         value = getattr(exports, attr, None)
         if value:
-            formats = value
-            break
-    return dict(categories), list(formats or _EXPORT_FORMATS)
+            return list(value)
+    return list(_EXPORT_FORMATS)
 
 
 def _format_name(value: Any) -> str:
@@ -112,34 +122,29 @@ def _format_name(value: Any) -> str:
 
 
 def build_catalog() -> dict[str, Any]:
-    profiles, presets, regions = _load_catalog_data()
-    poi_categories, export_formats = _load_exports()
+    _profiles, featured_presets, regions = _load_catalog_data()
+    export_formats = _load_export_formats()
 
     categories: list[dict[str, Any]] = []
 
-    profile_items = [
-        _item(
-            f"profile-{_slug(profile.get('id') or profile.get('name'), str(index))}",
-            _text(profile.get("name"), f"Scenic Profile {index + 1}"),
-            _text(profile.get("description"), "Scenic scoring profile available for route planning."),
-            "scenic-profile",
-        )
-        for index, profile in enumerate(profiles)
-        if isinstance(profile, dict)
+    # UI-facing curated styles (not the giant combinatorial profile list).
+    style_items = [
+        _item(f"style-{_slug(sid, str(i))}", name, desc, "scenery-style")
+        for i, (sid, name, desc) in enumerate(_UI_SCENERY_STYLES)
     ]
-    categories.append(_category("scenic-profiles", "Scenic Profiles", profile_items))
+    categories.append(_category("scenery-styles", "Scenery Styles (UI)", style_items))
 
     preset_items = [
         _item(
             f"preset-{_slug(preset.get('id') or preset.get('name'), str(index))}",
             _text(preset.get("name"), f"Scenic Drive Preset {index + 1}"),
-            _text(preset.get("description"), "Prebuilt scenic drive preset available in the planner."),
-            "scenic-drive-preset",
+            _text(preset.get("description"), "Featured scenic drive preset shown in the UI dropdown."),
+            "featured-preset",
         )
-        for index, preset in enumerate(presets)
+        for index, preset in enumerate(featured_presets)
         if isinstance(preset, dict)
     ]
-    categories.append(_category("scenic-drive-presets", "Scenic Drive Presets", preset_items))
+    categories.append(_category("featured-presets", "Featured Presets (UI)", preset_items))
 
     region_items = [
         _item(
@@ -152,20 +157,6 @@ def build_catalog() -> dict[str, Any]:
         if isinstance(region, dict)
     ]
     categories.append(_category("regions", "Regions", region_items))
-
-    poi_items = []
-    for category_id, tags in sorted(poi_categories.items(), key=lambda pair: str(pair[0])):
-        tag_list = ", ".join(str(tag) for tag in tags) if isinstance(tags, (list, tuple, set)) else str(tags)
-        name = str(category_id).replace("_", " ").replace("-", " ").title()
-        poi_items.append(
-            _item(
-                f"poi-{_slug(category_id, 'overlay')}",
-                name,
-                f"Point-of-interest overlay backed by tags: {tag_list}.",
-                "poi-overlay",
-            )
-        )
-    categories.append(_category("poi-overlays", "POI Overlays", poi_items))
 
     export_items = []
     seen_formats: set[str] = set()
@@ -188,7 +179,7 @@ def build_catalog() -> dict[str, Any]:
         _item(f"signal-{control_id}", name, description, "signal-control")
         for control_id, name, description in _SIGNAL_CONTROLS
     ]
-    categories.append(_category("signals-controls", "Signals & Controls", signal_items))
+    categories.append(_category("signals-controls", "Planner Controls (UI)", signal_items))
 
     core_items = [
         _item(f"action-{action_id}", name, description, "core-action")
@@ -202,35 +193,21 @@ def build_catalog() -> dict[str, Any]:
     ]
     categories.append(_category("keyboard-shortcuts", "Keyboard Shortcuts", shortcut_items))
 
-    tuned_items = []
-    if profiles and regions:
-        max_tuned = 1500
-        for profile in profiles:
-            if not isinstance(profile, dict):
-                continue
-            profile_id = _slug(profile.get("id") or profile.get("name"), "profile")
-            profile_name = _text(profile.get("name"), "Scenic Profile")
-            for region in regions:
-                if not isinstance(region, dict):
-                    continue
-                region_id = _slug(region.get("id") or region.get("name"), "region")
-                region_name = _text(region.get("name"), "Region")
-                tuned_items.append(
-                    _item(
-                        f"tuned-{profile_id}-{region_id}",
-                        f"{profile_name} in {region_name}",
-                        f"Run the real {profile_name} scoring profile against the {region_name} planning region.",
-                        "tuned-scenic-drive",
-                    )
-                )
-                if len(tuned_items) >= max_tuned:
-                    break
-            if len(tuned_items) >= max_tuned:
-                break
-    categories.append(_category("tuned-scenic-drives", "Tuned Scenic Drives (Profile × Region)", tuned_items))
+    experimental_items = [
+        _item(f"experimental-{eid}", name, description, "experimental")
+        for eid, name, description in _EXPERIMENTAL_NOTES
+    ]
+    categories.append(_category("experimental", "Experimental (not in UI)", experimental_items))
 
     total = sum(category["count"] for category in categories)
-    return {"total": total, "categories": categories}
+    return {
+        "total": total,
+        "categories": categories,
+        "note": (
+            "Experimental catalogue. UI uses curated scenery styles + FEATURED_PRESET_IDS only; "
+            "full /api/profiles and /api/presets remain available for API consumers."
+        ),
+    }
 
 
 def _get_catalog() -> dict[str, Any]:
@@ -242,6 +219,7 @@ def _get_catalog() -> dict[str, Any]:
 
 @router.get("/api/features")
 def get_features() -> dict[str, Any]:
+    """Experimental capability catalogue — not used by the planner UI."""
     return _get_catalog()
 
 
